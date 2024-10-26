@@ -7,7 +7,7 @@ import tflite_runtime.interpreter as tflite
 engine = pyttsx3.init()
 
 # Load the TFLite model and allocate tensors
-interpreter = tflite.Interpreter(model_path='path/to/your/model.tflite')
+interpreter = tflite.Interpreter(model_path='1.tflite')
 interpreter.allocate_tensors()
 
 # Get input and output tensors
