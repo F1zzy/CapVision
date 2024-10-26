@@ -46,7 +46,7 @@ KNOWN_WIDTH = 0.5  # width of a person in meters
 FOCAL_LENGTH = 700  # adjust this value based on your camera setup
 
 # Threshold distance in meters for announcement
-THRESHOLD_DISTANCE = 5
+THRESHOLD_DISTANCE = 10
 
 # Function to preprocess the frame for the model
 def preprocess_frame(frame):
@@ -151,7 +151,7 @@ while True:
         
         # Check if the last announcement is different and if the buffer time has passed
         current_time = time.time()
-        if (last_announcement != announcement) and (current_time - last_announcement_time >= BUFFER_TIME):
+        if  (current_time - last_announcement_time >= BUFFER_TIME):
             print(announcement)
             announcement_queue.put(announcement)
             last_announcement = announcement  # Update the last announcement
