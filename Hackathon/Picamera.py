@@ -31,8 +31,8 @@ interpreter.allocate_tensors()
 input_details = interpreter.get_input_details()
 output_details = interpreter.get_output_details()
 
-# Load Webcam 
-cap = cv2.VideoCapture(1) #1 on Laptop, 0 on Raspberry Pi 
+# Load the Webcam 
+cap = cv2.VideoCapture(0)  # 1 on Laptop, 0 on Raspberry Pi 
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
@@ -51,7 +51,7 @@ def preprocess_frame(frame):
     frame_uint8 = np.clip(frame_resized, 0, 255).astype(np.uint8)  # Ensure values are between 0 and 255
     return np.expand_dims(frame_uint8, axis=0)  # Add batch dimension
 
-# Function to speack dection details 
+# Function to speak detection details 
 def announce_detection(class_name, distance, direction):
     # Prepare the announcement string
     announcement = f"{class_name} {distance:.1f} meters {direction.strip()}."
@@ -67,7 +67,7 @@ def speak(announcement):
 # Dictionary to track last known distance of detected objects
 last_known_distances = {}
 
-# Main loop to read camera and display processed frames for testing purposes. TURN OFF for RASP version 
+# Main loop to read camera
 while True:
     ret, frame = cap.read()
     if not ret:
@@ -91,15 +91,12 @@ while True:
     frame_height, frame_width, _ = frame.shape
     frame_center = (frame_width // 2, frame_height // 2)
 
-    # Draw bounding boxes and labels on the frame
+    # Process detected objects
     for i in range(len(scores)):
-        if scores[i] > 0.7:  # Confidence threshold set to 80%
+        if scores[i] > 0.8:  # Confidence threshold set to 80%
             ymin, xmin, ymax, xmax = boxes[i]
             start_point = (int(xmin * frame.shape[1]), int(ymin * frame.shape[0]))
             end_point = (int(xmax * frame.shape[1]), int(ymax * frame.shape[0]))
-
-            # Draw bounding box
-            cv2.rectangle(frame, start_point, end_point, (0, 255, 0), 2)
 
             # Get the class name from the class ID
             class_id = int(class_ids[i])
@@ -138,12 +135,6 @@ while True:
                 elif centroid_x > frame_center[0] + middle_threshold:
                     direction += "Right"
 
-            # Labeling for Boxes 
-            distance_label = f"Distance: {distance:.2f} m"
-            label = f"{class_name}: {scores[i]:.2f} | {distance_label} | Direction: {direction.strip()}"
-            cv2.putText(frame, label, (start_point[0], start_point[1] - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
-
             # Check if the object is new or within 0.3m
             if class_id not in last_known_distances or distance < 0.5:
                 announce_detection(class_name, distance, direction)
@@ -155,12 +146,5 @@ while True:
         if obj_id not in current_ids:
             del last_known_distances[obj_id]  # Remove object from tracking if not detected
 
-    # Display the frame with detections
-    cv2.imshow('Object Detection', frame)
-
-    # Exit if 'q' is pressed
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
-
+# Cleanup
 cap.release()
-cv2.destroyAllWindows()
