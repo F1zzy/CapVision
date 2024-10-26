@@ -3,24 +3,26 @@ import numpy as np
 import tensorflow as tf
 import pyttsx3
 import threading
+import queue
+import time
+
+# Constant for buffer time in seconds
+BUFFER_TIME = 2.5  # Change this value to set the desired buffer time
 
 # Initialize the text-to-speech engine
 engine = pyttsx3.init()
 
-# All 80 Class Names for COCO dataset
-class_names = [
-    "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat",
-    "traffic light", "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat",
-    "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe", "backpack",
-    "umbrella", "handbag", "tie", "suitcase", "frisbee", "skis", "snowboard", "sports ball",
-    "kite", "baseball bat", "baseball glove", "skateboard", "surfboard", "tennis racket",
-    "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
-    "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake",
-    "chair", "couch", "potted plant", "bed", "dining table", "toilet", "tv", "laptop",
-    "mouse", "remote", "keyboard", "cell phone", "microwave", "oven", "toaster", "sink",
-    "refrigerator", "book", "clock", "vase", "scissors", "teddy bear", "hair drier",
-    "toothbrush"
-]
+# Set speech rate to a higher value
+engine.setProperty('rate', 250)  # Increase the rate (default is usually around 200)
+
+tts_lock = threading.Lock()  # Lock for the TTS engine to avoid concurrent access
+
+# Queue for announcements
+announcement_queue = queue.Queue()
+
+# Define the class names we want to detect
+class_names = ["person", "chair", "table", "dining table"]  # Add 'wall' if using a custom model
+class_ids_to_detect = [0, 62, 60, 86]  # Class IDs for person, chair, table
 
 # Load the TFLite model and allocate tensors
 model_path = '1.tflite'  # Update this to your model path
@@ -31,10 +33,11 @@ interpreter.allocate_tensors()
 input_details = interpreter.get_input_details()
 output_details = interpreter.get_output_details()
 
-# Load the Webcam 
+# Load Webcam 
 cap = cv2.VideoCapture(0)  # 1 on Laptop, 0 on Raspberry Pi 
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+print("Connected To Camera")
 
 # Known width of the object in meters (e.g., average person)
 KNOWN_WIDTH = 0.5  # width of a person in meters
@@ -42,32 +45,37 @@ KNOWN_WIDTH = 0.5  # width of a person in meters
 # Focal length (in pixels) can be estimated or calibrated
 FOCAL_LENGTH = 700  # adjust this value based on your camera setup
 
+# Threshold distance in meters for announcement
+THRESHOLD_DISTANCE = 5
+
 # Function to preprocess the frame for the model
 def preprocess_frame(frame):
-    # Resize to model's expected input size (320x320)
     frame_resized = cv2.resize(frame, (320, 320))
-    
-    # Normalize to [0, 255] and convert to UINT8
-    frame_uint8 = np.clip(frame_resized, 0, 255).astype(np.uint8)  # Ensure values are between 0 and 255
-    return np.expand_dims(frame_uint8, axis=0)  # Add batch dimension
+    frame_uint8 = np.clip(frame_resized, 0, 255).astype(np.uint8)
+    return np.expand_dims(frame_uint8, axis=0)
 
-# Function to speak detection details 
-def announce_detection(class_name, distance, direction):
-    # Prepare the announcement string
-    announcement = f"{class_name} {distance:.1f} meters {direction.strip()}."
-    print(announcement)  # Print to console for debugging
+# Function to handle speaking the announcements from the queue
+def handle_announcements():
+    while True:
+        announcement = announcement_queue.get()
+        with tts_lock:
+            if engine.isBusy():
+                engine.stop()  # Interrupt the current speech
+            engine.say(announcement)  # Say the new announcement
+        announcement_queue.task_done()
 
-    # Create a thread for speaking the announcement
-    threading.Thread(target=speak, args=(announcement,)).start()
+# Start the thread to handle announcements
+announcement_thread = threading.Thread(target=handle_announcements, daemon=True)
+announcement_thread.start()
 
-def speak(announcement):
-    engine.say(announcement)  # Convert text to speech
-    engine.runAndWait()  # Wait for the speech to finish
+# Initialize variable to track the last announcement in the main loop
+last_announcement = None
+last_announcement_time = 0  # Track the time of the last announcement
 
-# Dictionary to track last known distance of detected objects
-last_known_distances = {}
+# Main loop to read camera and display processed frames
+print("Running")
+detected_objects = {}  # Track currently detected objects
 
-# Main loop to read camera
 while True:
     ret, frame = cap.read()
     if not ret:
@@ -83,68 +91,75 @@ while True:
     interpreter.invoke()
 
     # Get the output tensors
-    boxes = interpreter.get_tensor(output_details[0]['index'])[0]  # Bounding boxes
-    class_ids = interpreter.get_tensor(output_details[1]['index'])[0]  # Class IDs
-    scores = interpreter.get_tensor(output_details[2]['index'])[0]  # Confidence scores
+    boxes = interpreter.get_tensor(output_details[0]['index'])[0]
+    class_ids = interpreter.get_tensor(output_details[1]['index'])[0]
+    scores = interpreter.get_tensor(output_details[2]['index'])[0]
 
     # Calculate frame center
     frame_height, frame_width, _ = frame.shape
     frame_center = (frame_width // 2, frame_height // 2)
 
-    # Process detected objects
+    current_detections = {}
+
     for i in range(len(scores)):
-        if scores[i] > 0.8:  # Confidence threshold set to 80%
-            ymin, xmin, ymax, xmax = boxes[i]
-            start_point = (int(xmin * frame.shape[1]), int(ymin * frame.shape[0]))
-            end_point = (int(xmax * frame.shape[1]), int(ymax * frame.shape[0]))
-
-            # Get the class name from the class ID
+        if scores[i] > 0.6:  # Confidence threshold set to 60%
             class_id = int(class_ids[i])
-            class_name = class_names[class_id] if class_id < len(class_names) else "Unknown"
+            # Only process the selected class IDs
+            if class_id in class_ids_to_detect:
+                ymin, xmin, ymax, xmax = boxes[i]
+                start_point = (int(xmin * frame.shape[1]), int(ymin * frame.shape[0]))
+                end_point = (int(xmax * frame.shape[1]), int(ymax * frame.shape[0]))
 
-            # Calculate object width in pixels
-            object_width_pixels = end_point[0] - start_point[0]
+                # Draw bounding box
+                cv2.rectangle(frame, start_point, end_point, (0, 255, 0), 2)
 
-            # Calculate distance using the known width and focal length
-            if object_width_pixels > 0:  # Prevent division by zero
-                distance = (KNOWN_WIDTH * FOCAL_LENGTH) / object_width_pixels
-            else:
-                distance = float('inf')  # Set to infinity if calculation fails
+                # Get the class name from the class ID
+                class_name = class_names[class_ids_to_detect.index(class_id)]
 
-            # Calculate the centroid of the bounding box
-            centroid_x = (start_point[0] + end_point[0]) // 2
-            centroid_y = (start_point[1] + end_point[1]) // 2
+                # Calculate object width in pixels and distance
+                object_width_pixels = end_point[0] - start_point[0]
+                distance = (KNOWN_WIDTH * FOCAL_LENGTH) / object_width_pixels if object_width_pixels > 0 else float('inf')
 
-            # Determine direction
-            direction = ""
-            middle_threshold = 30  
+                # Only consider objects within the threshold distance
+                if distance <= THRESHOLD_DISTANCE:
+                    current_detections[class_id] = {
+                        "class_name": class_name,
+                        "distance": distance,
+                        "bounding_box": (start_point, end_point),
+                        "centroid": ((start_point[0] + end_point[0]) // 2, (start_point[1] + end_point[1]) // 2)
+                    }
 
-            if abs(centroid_y - frame_center[1]) < middle_threshold:
-                direction += "Middle "
-            else:
-                if centroid_y < frame_center[1] - middle_threshold:
-                    direction += "Above "
-                elif centroid_y > frame_center[1] + middle_threshold:
-                    direction += "Below "
+    # Determine the closest object to announce
+    closest_object = None
+    if current_detections:
+        # Find the closest detected object
+        closest_object = min(current_detections.values(), key=lambda x: x['distance'])
 
-            if abs(centroid_x - frame_center[0]) < middle_threshold:
-                direction += "Middle"
-            else:
-                if centroid_x < frame_center[0] - middle_threshold:
-                    direction += "Left "
-                elif centroid_x > frame_center[0] + middle_threshold:
-                    direction += "Right"
+    # Announce the closest object if it has changed and the buffer time has passed
+    if closest_object:
+        # Calculate the direction
+        centroid = closest_object['centroid']
+        direction = ""
+        middle_threshold = 30  
+        direction += "Front " if abs(centroid[1] - frame_center[1]) < middle_threshold else \
+                     " " if centroid[1] < frame_center[1] - middle_threshold else " "
+        direction += "Middle" if abs(centroid[0] - frame_center[0]) < middle_threshold else \
+                     "Left " if centroid[0] < frame_center[0] - middle_threshold else "Right"
 
-            # Check if the object is new or within 0.3m
-            if class_id not in last_known_distances or distance < 0.5:
-                announce_detection(class_name, distance, direction)
-                last_known_distances[class_id] = distance  # Update the last known distance
+        # Create the announcement message
+        announcement = f"{closest_object['class_name']} {closest_object['distance']:.1f} meters {direction.strip()}."
+        
+        # Check if the last announcement is different and if the buffer time has passed
+        current_time = time.time()
+        if (last_announcement != announcement) and (current_time - last_announcement_time >= BUFFER_TIME):
+            print(announcement)
+            announcement_queue.put(announcement)
+            last_announcement = announcement  # Update the last announcement
+            last_announcement_time = current_time  # Update the time of the last announcement
 
-    # Remove objects that are no longer detected
-    current_ids = set(int(class_ids[i]) for i in range(len(scores)) if scores[i] > 0.8)
-    for obj_id in list(last_known_distances.keys()):
-        if obj_id not in current_ids:
-            del last_known_distances[obj_id]  # Remove object from tracking if not detected
+    # Exit if 'q' is pressed
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
 
-# Cleanup
 cap.release()
+cv2.destroyAllWindows()
