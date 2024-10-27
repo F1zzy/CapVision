@@ -138,7 +138,6 @@ while True:
             last_announcement_time = current_time
             last_announcement_distance = closest_object['distance']
 
-    cv2.imshow('Object Detection', frame)
 
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
