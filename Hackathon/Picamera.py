@@ -7,13 +7,13 @@ import queue
 import time
 
 # Constant for buffer time in seconds
-BUFFER_TIME = 0  # Change this value to set the desired buffer time
+BUFFER_TIME = 1.5  # Change this value to set the desired buffer time
 
 # Initialize the text-to-speech engine
 engine = pyttsx3.init()
 
 # Set speech rate to a higher value
-engine.setProperty('rate', 250)  # Increase the rate (default is usually around 200)
+engine.setProperty('rate', 300)  # Increase the rate (default is usually around 200)
 
 tts_lock = threading.Lock()  # Lock for the TTS engine to avoid concurrent access
 
@@ -151,7 +151,7 @@ while True:
         
         # Check if the last announcement is different and if the buffer time has passed
         current_time = time.time()
-        if  (current_time - last_announcement_time >= BUFFER_TIME):
+        if (last_announcement != announcement) and (current_time - last_announcement_time >= BUFFER_TIME):
             print(announcement)
             announcement_queue.put(announcement)
             last_announcement = announcement  # Update the last announcement
