@@ -7,7 +7,7 @@ import queue
 import time
 
 # Constant for buffer time in seconds
-BUFFER_TIME = 2.5  # Change this value to set the desired buffer time
+BUFFER_TIME = 0  # Change this value to set the desired buffer time
 
 # Initialize the text-to-speech engine
 engine = pyttsx3.init()
