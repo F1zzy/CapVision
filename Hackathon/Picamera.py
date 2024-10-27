@@ -7,7 +7,7 @@ import queue
 import time
 
 # Constant for buffer time in seconds
-BUFFER_TIME = 1.5  # Change this value to set the desired buffer time
+BUFFER_TIME = 1  # Change this value to set the desired buffer time
 DISTANCE_THRESHOLD = 0.3  # Minimum distance change to trigger a new announcement in meters
 
 # Initialize the text-to-speech engine
@@ -41,7 +41,7 @@ print("Connected To Camera")
 # Known width of the object in meters (e.g., average person)
 KNOWN_WIDTH = 0.5  # width of a person in meters
 FOCAL_LENGTH = 700  # adjust this value based on your camera setup
-THRESHOLD_DISTANCE = 10  # Announcement threshold in meters
+THRESHOLD_DISTANCE = 100  # Announcement threshold in meters
 
 # Function to preprocess the frame for the model
 def preprocess_frame(frame):
