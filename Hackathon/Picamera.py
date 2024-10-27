@@ -12,7 +12,7 @@ DISTANCE_THRESHOLD = 0.3  # Minimum distance change to trigger a new announcemen
 
 # Initialize the text-to-speech engine
 engine = pyttsx3.init()
-engine.setProperty('rate', 275)  # Set TTS speed
+engine.setProperty('rate', 200)  # Set TTS speed
 
 tts_lock = threading.Lock()  # Lock for the TTS engine to avoid concurrent access
 
